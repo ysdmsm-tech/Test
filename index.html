@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Speech API 検証（ブラウザ自動停止の確認用）</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background-color: #f5f7fb;
+      color: #333;
+    }
+    h1 { font-size: 20px; margin-bottom: 20px; }
+    .card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+      margin-bottom: 20px;
+    }
+    .status-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    #status-badge {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      color: white;
+      background-color: #6c757d;
+    }
+    #status-badge.ready { background-color: #007bff; }
+    #status-badge.listening { background-color: #28a745; animation: pulse 2s infinite; }
+    #status-badge.error { background-color: #dc3545; }
+    #status-badge.stopped { background-color: #6c757d; }
+    
+    #mic-toggle-btn {
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      border: none;
+      color: white;
+      background-color: #28a745;
+      transition: background-color 0.2s;
+    }
+    #mic-toggle-btn.off {
+      background-color: #dc3545;
+    }
+    #mic-toggle-btn:hover {
+      opacity: 0.9;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.6; }
+      100% { opacity: 1; }
+    }
+
+    #result-box {
+      min-height: 100px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      background-color: #f8fafc;
+      font-size: 16px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .log-box {
+      max-height: 200px;
+      overflow-y: auto;
+      background: #1e1e1e;
+      color: #76ea1b;
+      font-family: monospace;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🎙️ 音声認識タイムアウト検証（自動停止の確認用）</h1>
+
+  <div class="card">
+    <div class="status-container">
+      <span>現在の状態:</span>
+      <span id="status-badge">初期化中...</span>
+      <button id="mic-toggle-btn" class="off">マイクOFF（押して有効化）</button>
+    </div>
+    <div>動作モード: <strong style="color: #d9534f;">ブラウザの無音自動停止をテスト中</strong></div>
+  </div>
+
+  <div class="card">
+    <h3>🗣️ 認識されたテキスト</h3>
+    <div id="result-box">ここに喋った内容が表示されます...</div>
+  </div>
+
+  <div class="card">
+    <h3>💻 システムログ</h3>
+    <div id="log-box" class="log-box"></div>
+  </div>
+
+  <script>
+    const statusBadge = document.getElementById('status-badge');
+    const micToggleBtn = document.getElementById('mic-toggle-btn');
+    const resultBox = document.getElementById('result-box');
+    const logBox = document.getElementById('log-box');
+
+    function appendLog(message, isError = false) {
+      console.log(message);
+      const time = new Date().toLocaleTimeString();
+      const logLine = document.createElement('div');
+      logLine.style.color = isError ? '#ff6b6b' : '#76ea1b';
+      logLine.textContent = `[${time}] ${message}`;
+      logBox.appendChild(logLine);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      statusBadge.textContent = "未対応";
+      statusBadge.className = "error";
+      micToggleBtn.disabled = true;
+      appendLog("❌ このブラウザは Web Speech API に対応していません。", true);
+    } else {
+      const rec = new SpeechRecognition();
+      
+      rec.lang = 'ja-JP';
+      rec.interimResults = true;
+      rec.continuous = true;
+      
+      let isManualStopped = false; // ユーザーが手動で止めたかどうかのフラグ
+      
+      statusBadge.textContent = "停止中（マイクOFF）";
+      statusBadge.className = "stopped";
+      appendLog("💡 ページ読み込み完了。初期状態はマイクOFFです。ボタンを押して開始してください。");
+
+      // --- イベントハンドラ ---
+
+      rec.onstart = () => {
+        isManualStopped = false;
+        statusBadge.textContent = "音声認識中（マイクON）";
+        statusBadge.className = "listening";
+        
+        micToggleBtn.textContent = "マイクON（押して停止）";
+        micToggleBtn.className = "";
+
+        appendLog("🎙️ 音声認識スタート");
+      };
+
+      rec.onresult = (event) => {
+        const currentText = event.results[event.results.length - 1][0].transcript;
+        resultBox.textContent = currentText;
+        appendLog(`🗣️ 認識中: ${currentText}`);
+      };
+
+      rec.onerror = (event) => {
+        if (event.error === 'no-speech') {
+          appendLog(`⚠️ 無音によるブラウザ都合のタイムアウトを検知 (${event.error})`);
+        } else {
+          appendLog(`❌ エラー発生: ${event.error}`, true);
+        }
+      };
+
+      rec.onend = () => {
+        // 1. ユーザーが手動で止めた場合
+        if (isManualStopped) {
+          statusBadge.textContent = "停止中（マイクOFF）";
+          statusBadge.className = "stopped";
+          
+          micToggleBtn.textContent = "マイクOFF（押して有効化）";
+          micToggleBtn.className = "off";
+
+          appendLog("🛑 ユーザー操作により音声認識を停止しました。");
+          return;
+        }
+
+        // 2. 自動復旧させず、システム（ブラウザ）が無音で止めた状態をそのまま保持して通知する
+        statusBadge.textContent = "自動停止（無音・タイムアウト）";
+        statusBadge.className = "stopped";
+        
+        micToggleBtn.textContent = "マイクOFF（押して有効化）";
+        micToggleBtn.className = "off";
+
+        appendLog("🛑 無音状態が続いたため、ブラウザによって音声認識が自動停止されました。");
+      };
+
+      // --- ボタンクリックイベント ---
+      micToggleBtn.addEventListener('click', () => {
+        const isRunning = statusBadge.classList.contains('listening');
+
+        if (isRunning) {
+          // 稼働中 -> 手動で停止
+          isManualStopped = true;
+          try {
+            rec.stop();
+          } catch (e) {
+            statusBadge.textContent = "停止中（マイクOFF）";
+            statusBadge.className = "stopped";
+            micToggleBtn.textContent = "マイクOFF（押して有効化）";
+            micToggleBtn.className = "off";
+          }
+        } else {
+          // 停止中 -> 手動で開始
+          isManualStopped = false;
+          resultBox.textContent = "音声を認識中...";
+          try {
+            rec.start();
+          } catch (e) {
+            appendLog("❌ 開始できませんでした: " + e.message, true);
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
